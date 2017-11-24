@@ -8,16 +8,19 @@ class Player {
 	float hp;
 	float speed = PLAYER_SPEED;
 	float real_X, real_Y;
+	float look_X, look_Y;
 	float move_State[2]{};
 public:
 	Player(float pX, float pY, float pHP);
 
 	float getRealX() { return real_X; }
 	float getRealY() { return real_Y; }
+	float getLookX() { return look_X; }
+	float getLookY() { return look_Y; }
 	float getHP() { return hp; }
 
 	float move(float min, float x, float v, float max);
 
 	void changeMove(int* moveState);
-	void update(float frame_time);
+	void update(int frame_time);
 };

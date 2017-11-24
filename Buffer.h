@@ -1,8 +1,9 @@
 #pragma pack(1)
 
 struct PlayerBuf {
-	float real_X, realY;
+	float real_X, real_Y;
 	float look_X, look_Y;
+	float hp;
 	int state, code;
 };
 
@@ -12,8 +13,8 @@ struct BulletBuf {
 
 struct ClientBuf {
 	int move_State[2];
-	int shoot_State;
-	float mouse_X, mouse_Y;
+	/*int shoot_State;
+	float look_X, look_Y;*/
 };
 
 #pragma pack()

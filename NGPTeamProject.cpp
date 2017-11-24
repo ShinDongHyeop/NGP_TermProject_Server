@@ -6,12 +6,14 @@
 #include <time.h>
 #include "Player.h"
 #include "Bullet.h"
+#include "Buffer.h"
 
 using namespace std;
 
 #define SERVERPORT		5000
 
 #define MAX_PLAYER		3
+#define PB_SIZE			(sizeof(PlayerBuf) * MAX_PLAYER)
 
 enum GameState {LOGIN, RUNNING, END};
 enum PlayerState{WAIT, READY, START, PLAY, DIE, RESPAWN};
@@ -65,6 +67,8 @@ int player_Count = 0;
 int player_State[3]{ WAIT, WAIT, WAIT };
 
 vector<Player*> players;
+PlayerBuf playersBuf[3];
+ClientBuf clientBuf[3];
 
 bool readyCheck() {
 	for (int i = 0; i < 3; ++i)
@@ -74,32 +78,59 @@ bool readyCheck() {
 }
 
 void initAllData(){
+	srand(time(NULL));
 	for (int i = 0; i < MAX_PLAYER; ++i) {
-		srand(time(NULL));
 		float random_X = (float)rand() / RAND_MAX * 2000.0f;
 		float random_Y = (float)rand() / RAND_MAX * 2000.0f;
-		players.push_back(new Player(random_X, random_Y, 100));
+		players.push_back(new Player(random_X, random_Y, PLAYER_HP));
 	}
+}
+
+void setPlayerBuf() {
+	for (int i = 0; i < MAX_PLAYER; ++i) {
+		playersBuf[i].code = i;
+		playersBuf[i].real_X = players[i]->getRealX();
+		playersBuf[i].real_Y = players[i]->getRealY();
+		playersBuf[i].look_X = players[i]->getLookX();
+		playersBuf[i].look_Y = players[i]->getLookY();
+		playersBuf[i].hp = players[i]->getHP();
+		playersBuf[i].state = player_State[i];
+	}
+}
+
+void changePlayerData(int code, int frame_time) {
+	players[code]->changeMove(clientBuf[code].move_State);
+	players[code]->update(frame_time);
 }
 
 DWORD WINAPI myGameThread(LPVOID arg) {
 	SOCKET client_sock = (SOCKET)arg;
-	int retval;
 	SOCKADDR_IN clientaddr;
 	int addrlen = sizeof(clientaddr);
 	getpeername(client_sock, (SOCKADDR *)&clientaddr, &addrlen);
+	int frame_time;
+	int retval;
 	int playerCode = player_Count;
+	retval = send(client_sock, (char*)&playerCode, sizeof(int), 0);
+	if (retval == SOCKET_ERROR) {
+		err_display("send()");
+	}
 	player_Count++;
-	int type;
+	int game_State;
 	while (1) {
-		retval = recv(client_sock, (char*)&type, sizeof(int), 0);
+		retval = recv(client_sock, (char*)&frame_time, sizeof(int), 0);
+		if (retval == SOCKET_ERROR) {
+			err_display("recv()");
+			break;
+		}
+		retval = recv(client_sock, (char*)&game_State, sizeof(int), 0);
 		if (retval == SOCKET_ERROR) {
 			err_display("recv()");
 			break;
 		}
 		else if (retval == 0)
 			break;
-		switch (type)
+		switch (game_State)
 		{
 		case LOGIN:
 			int state;
@@ -109,31 +140,55 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 				break;
 			}
 			player_State[playerCode] = state;
-			state = player_State[playerCode];
 
 			EnterCriticalSection(&cs);
-				printf("<\t");
-				for (int i = 0; i < 3; ++i) {
-					if (player_State[i] == WAIT)
-						printf("WAIT\t");
-					else if (player_State[i] == READY)
-						printf("READY\t");
+			if (readyCheck()) {
+				player_State[playerCode] = START;
+				state = player_State[playerCode];
+				retval = send(client_sock, (char*)&state, sizeof(int), 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
 				}
-				printf(">\n");
+				initAllData();
+				setPlayerBuf();
+				retval = send(client_sock, (char*)&playersBuf, PB_SIZE, 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
+				}
+			}
+			else {
+				state = player_State[playerCode];
+				retval = send(client_sock, (char*)&state, sizeof(int), 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
+				}
+			}
 			LeaveCriticalSection(&cs);
-
-			retval = send(client_sock, (char*)&state, sizeof(int), 0);
+			break;
+		case RUNNING:
+			EnterCriticalSection(&cs);
+			retval = recvn(client_sock, (char*)&clientBuf[playerCode], sizeof(ClientBuf), 0);
+			if (retval == SOCKET_ERROR) {
+				err_display("recv()");
+				break;
+			}
+			changePlayerData(playerCode, frame_time);
+			setPlayerBuf();
+			retval = send(client_sock, (char*)&playersBuf, PB_SIZE, 0);
 			if (retval == SOCKET_ERROR) {
 				err_display("send()");
 				break;
 			}
-			break;
-		case RUNNING:
+			LeaveCriticalSection(&cs);
 			break;
 		case END:
 			break;
 		}
 	}
+	player_Count--;
 	closesocket(client_sock);
 	return 0;
 }
@@ -172,21 +227,23 @@ int main(int argc, char *argv[])
 
 	while (1) {
 		// accept()
-		addrlen = sizeof(clientaddr);
-		client_sock = accept(listen_sock, (SOCKADDR *)&clientaddr, &addrlen);
-		if (client_sock == INVALID_SOCKET) {
-			err_display("accept()");
-			break;
-		}
-		// 접속한 클라이언트 정보 출력
-		printf("\n[TCP 서버] 클라이언트 접속: IP 주소=%s, 포트 번호=%d\n",
-			inet_ntoa(clientaddr.sin_addr), ntohs(clientaddr.sin_port));
+		if (player_Count <= MAX_PLAYER) {
+			addrlen = sizeof(clientaddr);
+			client_sock = accept(listen_sock, (SOCKADDR *)&clientaddr, &addrlen);
+			if (client_sock == INVALID_SOCKET) {
+				err_display("accept()");
+				break;
+			}
+			// 접속한 클라이언트 정보 출력
+			printf("\n[TCP 서버] 클라이언트 접속: IP 주소=%s, 포트 번호=%d\n",
+				inet_ntoa(clientaddr.sin_addr), ntohs(clientaddr.sin_port));
 
-		// 스레드 생성
-		hThread = CreateThread(NULL, 0, myGameThread,
-			(LPVOID)client_sock, 0, NULL);
-		if (hThread == NULL) { closesocket(client_sock); }
-		else { CloseHandle(hThread); }
+			// 스레드 생성
+			hThread = CreateThread(NULL, 0, myGameThread,
+				(LPVOID)client_sock, 0, NULL);
+			if (hThread == NULL) { closesocket(client_sock); }
+			else { CloseHandle(hThread); }
+		}
 	}
 	DeleteCriticalSection(&cs);
 	// closesocket()
