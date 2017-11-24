@@ -4,21 +4,16 @@
 #include <stdio.h>
 #include <vector>
 #include <time.h>
+#include <list>
 #include "Player.h"
 #include "Bullet.h"
 #include "Buffer.h"
+#include "suf.h"
 
 using namespace std;
 
-#define SERVERPORT		5000
-
-#define MAX_PLAYER		3
-#define PB_SIZE			(sizeof(PlayerBuf) * MAX_PLAYER)
-
-enum GameState {LOGIN, RUNNING, END};
-enum PlayerState{WAIT, READY, START, PLAY, DIE, RESPAWN};
-
 CRITICAL_SECTION cs;
+HANDLE hEvent[3];
 
 void err_quit(char *msg) {
 	LPVOID IpMsgBuf;
@@ -67,7 +62,9 @@ int player_Count = 0;
 int player_State[3]{ WAIT, WAIT, WAIT };
 
 vector<Player*> players;
+list<Bullet*> bullets;
 PlayerBuf playersBuf[3];
+BulletBuf bulletsBuf[MAX_BULLET];
 ClientBuf clientBuf[3];
 
 bool readyCheck() {
@@ -88,7 +85,6 @@ void initAllData(){
 
 void setPlayerBuf() {
 	for (int i = 0; i < MAX_PLAYER; ++i) {
-		playersBuf[i].code = i;
 		playersBuf[i].real_X = players[i]->getRealX();
 		playersBuf[i].real_Y = players[i]->getRealY();
 		playersBuf[i].look_X = players[i]->getLookX();
@@ -98,9 +94,33 @@ void setPlayerBuf() {
 	}
 }
 
+void setBulletBuf() {
+	int i = 0;
+	for (auto b : bullets) {
+		bulletsBuf[i].real_X = b->getRealX();
+		bulletsBuf[i].real_Y = b->getRealY();
+		++i;
+	}
+}
+
 void changePlayerData(int code, int frame_time) {
 	players[code]->changeMove(clientBuf[code].move_State);
+	players[code]->changeShootState(clientBuf[code].shoot_State);
+	players[code]->changeLookXY(clientBuf[code].look_X, clientBuf[code].look_Y);
 	players[code]->update(frame_time);
+	if (players[code]->shoot()) {
+		bullets.push_back(
+			new Bullet(
+				players[code]->getRealX(), players[code]->getRealY(),
+				clientBuf[code].look_X, clientBuf[code].look_Y
+			)
+		);
+	}
+	for (auto b : bullets) {
+		b->update(frame_time);
+		if (b->overRange())
+			bullets.remove(b);
+	}
 }
 
 DWORD WINAPI myGameThread(LPVOID arg) {
@@ -111,6 +131,7 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 	int frame_time;
 	int retval;
 	int playerCode = player_Count;
+	int bullet_count;
 	retval = send(client_sock, (char*)&playerCode, sizeof(int), 0);
 	if (retval == SOCKET_ERROR) {
 		err_display("send()");
@@ -141,7 +162,6 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 			}
 			player_State[playerCode] = state;
 
-			EnterCriticalSection(&cs);
 			if (readyCheck()) {
 				player_State[playerCode] = START;
 				state = player_State[playerCode];
@@ -166,23 +186,35 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 					break;
 				}
 			}
-			LeaveCriticalSection(&cs);
 			break;
 		case RUNNING:
-			EnterCriticalSection(&cs);
 			retval = recvn(client_sock, (char*)&clientBuf[playerCode], sizeof(ClientBuf), 0);
 			if (retval == SOCKET_ERROR) {
 				err_display("recv()");
 				break;
 			}
+			retval = WaitForSingleObject(hEvent[(playerCode + 1) % 3], INFINITE);
+			if (retval != WAIT_OBJECT_0) break;
 			changePlayerData(playerCode, frame_time);
 			setPlayerBuf();
+			setBulletBuf();
 			retval = send(client_sock, (char*)&playersBuf, PB_SIZE, 0);
 			if (retval == SOCKET_ERROR) {
 				err_display("send()");
 				break;
 			}
-			LeaveCriticalSection(&cs);
+			bullet_count = bullets.size();
+			retval = send(client_sock, (char*)&bullet_count, sizeof(int), 0);
+			if (retval == SOCKET_ERROR) {
+			err_display("send()");
+			break;
+			}
+			retval = send(client_sock, (char*)&bulletsBuf, sizeof(BulletBuf)*bullet_count, 0);
+			if (retval == SOCKET_ERROR) {
+			err_display("send()");
+			break;
+			}
+			SetEvent(hEvent[playerCode]);
 			break;
 		case END:
 			break;
@@ -198,6 +230,10 @@ int main(int argc, char *argv[])
 	int retval;
 	InitializeCriticalSection(&cs);
 	// 윈속 초기화
+	hEvent[0] = CreateEvent(NULL, FALSE, FALSE, NULL);
+	hEvent[1] = CreateEvent(NULL, FALSE, FALSE, NULL);
+	hEvent[2] = CreateEvent(NULL, FALSE, TRUE, NULL);
+
 	WSADATA wsa;
 	if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
 		return 1;
@@ -243,10 +279,13 @@ int main(int argc, char *argv[])
 				(LPVOID)client_sock, 0, NULL);
 			if (hThread == NULL) { closesocket(client_sock); }
 			else { CloseHandle(hThread); }
+			SetThreadPriority(hThread, THREAD_PRIORITY_TIME_CRITICAL);
 		}
 	}
 	DeleteCriticalSection(&cs);
 	// closesocket()
+	for (int i = 0; i < 3; ++i)
+		CloseHandle(hEvent[i]);
 	closesocket(listen_sock);
 
 	// 윈속 종료
