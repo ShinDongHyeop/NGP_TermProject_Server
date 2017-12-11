@@ -63,3 +63,16 @@ void Player::changeShootState(int state) {
 void Player::changeLookXY(float lookX, float lookY) {
 	look_X = lookX;		look_Y = lookY;
 }
+
+void Player::respawn(float pX, float pY, float pHP) {
+	real_X = pX;		real_Y = pY;
+	hp = pHP;
+	speed = PLAYER_SPEED;
+	move_State[0] = 0;	move_State[1] = 0;
+	shoot_State = NO_SHOOT;
+	shoot_CollTime = 0.3f;
+	coll_Box[LEFT] = pX - PLAYER_SIZE;
+	coll_Box[RIGHT] = pX + PLAYER_SIZE;
+	coll_Box[BOTTOM] = pY - PLAYER_SIZE;
+	coll_Box[TOP] = pY + PLAYER_SIZE;
+}

@@ -138,6 +138,13 @@ void collisionObjects(int code) {
 	}
 }
 
+void respawnPlayer(int code) {
+	srand(time(NULL));
+	float random_X = (float)rand() / RAND_MAX * 2000.0f;
+	float random_Y = (float)rand() / RAND_MAX * 2000.0f;
+	players[code]->respawn(random_X, random_Y, PLAYER_HP);
+}
+
 DWORD WINAPI myGameThread(LPVOID arg) {
 	SOCKET client_sock = (SOCKET)arg;
 	client_Socks[player_Count] = (SOCKET)arg;
@@ -145,7 +152,7 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 	int addrlen = sizeof(clientaddr);
 	getpeername(client_sock, (SOCKADDR *)&clientaddr, &addrlen);
 	int frame_time;
-	float start_time;
+	float start_time, respawn_time;
 	int retval;
 	int playerCode = player_Count;
 	int bullet_count;
@@ -258,8 +265,60 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 				}
 				break;
 			case DIE:
+				setPlayerBuf();
+				setBulletBuf();
+
+				retval = send(client_sock, (char*)&playersBuf, PB_SIZE, 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
+				}
+				bullet_count = bullets.size();
+				retval = send(client_sock, (char*)&bullet_count, sizeof(int), 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
+				}
+				retval = send(client_sock, (char*)&bulletsBuf, sizeof(BulletBuf)*bullet_count, 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
+				}
 				break;
 			case RESPAWN:
+				retval = send(client_sock, (char*)&frame_time, sizeof(int), 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
+				}
+				retval = recv(client_sock, (char*)&respawn_time, sizeof(float), 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("recv()");
+					break;
+				}
+				if (respawn_time <= 0.0f) {
+					player_State[playerCode] = PLAY;
+					respawnPlayer(playerCode);
+				}
+				setPlayerBuf();
+				setBulletBuf();
+
+				retval = send(client_sock, (char*)&playersBuf, PB_SIZE, 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
+				}
+				bullet_count = bullets.size();
+				retval = send(client_sock, (char*)&bullet_count, sizeof(int), 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
+				}
+				retval = send(client_sock, (char*)&bulletsBuf, sizeof(BulletBuf)*bullet_count, 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
+				}
 				break;
 			}
 			retval = send(client_sock, (char*)&player_State[playerCode], sizeof(int), 0);

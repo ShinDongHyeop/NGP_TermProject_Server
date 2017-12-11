@@ -26,4 +26,5 @@ public:
 	void changeLookXY(float lookX, float lookY);
 	void update(int frame_time);
 	bool collBullet(float damage);
+	void respawn(float pX, float pY, float pHP);
 };
