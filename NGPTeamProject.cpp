@@ -13,7 +13,8 @@
 using namespace std;
 
 CRITICAL_SECTION cs;
-HANDLE hEvent[3];
+HANDLE hRecvEvent[3];
+HANDLE hSendEvent[3];
 
 void err_quit(char *msg) {
 	LPVOID IpMsgBuf;
@@ -66,6 +67,7 @@ list<Bullet*> bullets;
 PlayerBuf playersBuf[3];
 BulletBuf bulletsBuf[MAX_BULLET];
 ClientBuf clientBuf[3];
+SOCKET client_Socks[3];
 
 bool readyCheck() {
 	for (int i = 0; i < 3; ++i)
@@ -111,6 +113,7 @@ void changePlayerData(int code, int frame_time) {
 	if (players[code]->shoot()) {
 		bullets.push_back(
 			new Bullet(
+				code,
 				players[code]->getRealX(), players[code]->getRealY(),
 				clientBuf[code].look_X, clientBuf[code].look_Y
 			)
@@ -123,8 +126,18 @@ void changePlayerData(int code, int frame_time) {
 	}
 }
 
+void collisionObjects(int code) {
+	for (auto d : bullets) {
+		if (collision(d, players[code]) && (code != d->getOwner())) {
+			bullets.remove(d);
+			players[code]->collBullet(10.0f);
+		}
+	}
+}
+
 DWORD WINAPI myGameThread(LPVOID arg) {
 	SOCKET client_sock = (SOCKET)arg;
+	client_Socks[player_Count] = (SOCKET)arg;
 	SOCKADDR_IN clientaddr;
 	int addrlen = sizeof(clientaddr);
 	getpeername(client_sock, (SOCKADDR *)&clientaddr, &addrlen);
@@ -193,11 +206,27 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 				err_display("recv()");
 				break;
 			}
-			retval = WaitForSingleObject(hEvent[(playerCode + 1) % 3], INFINITE);
-			if (retval != WAIT_OBJECT_0) break;
+			retval = WaitForMultipleObjects(3, hSendEvent, TRUE, INFINITE);
+			if (retval == WAIT_FAILED) break;
+
 			changePlayerData(playerCode, frame_time);
+
+			EnterCriticalSection(&cs);
+			collisionObjects(playerCode);
+			LeaveCriticalSection(&cs);
+
 			setPlayerBuf();
 			setBulletBuf();
+
+			EnterCriticalSection(&cs);
+			SetEvent(hRecvEvent[0]);
+			SetEvent(hRecvEvent[1]);
+			SetEvent(hRecvEvent[2]);
+			LeaveCriticalSection(&cs);
+
+			retval = WaitForMultipleObjects(3, hRecvEvent, TRUE, INFINITE);
+			if (retval == WAIT_FAILED) break;
+
 			retval = send(client_sock, (char*)&playersBuf, PB_SIZE, 0);
 			if (retval == SOCKET_ERROR) {
 				err_display("send()");
@@ -214,7 +243,11 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 			err_display("send()");
 			break;
 			}
-			SetEvent(hEvent[playerCode]);
+			EnterCriticalSection(&cs);
+			SetEvent(hSendEvent[0]);
+			SetEvent(hSendEvent[1]);
+			SetEvent(hSendEvent[2]);
+			LeaveCriticalSection(&cs);
 			break;
 		case END:
 			break;
@@ -230,9 +263,12 @@ int main(int argc, char *argv[])
 	int retval;
 	InitializeCriticalSection(&cs);
 	// 윈속 초기화
-	hEvent[0] = CreateEvent(NULL, FALSE, FALSE, NULL);
-	hEvent[1] = CreateEvent(NULL, FALSE, FALSE, NULL);
-	hEvent[2] = CreateEvent(NULL, FALSE, TRUE, NULL);
+	hRecvEvent[0] = CreateEvent(NULL, FALSE, FALSE, NULL);
+	hRecvEvent[1] = CreateEvent(NULL, FALSE, FALSE, NULL);
+	hRecvEvent[2] = CreateEvent(NULL, FALSE, FALSE, NULL);
+	hSendEvent[0] = CreateEvent(NULL, FALSE, TRUE, NULL);
+	hSendEvent[1] = CreateEvent(NULL, FALSE, TRUE, NULL);
+	hSendEvent[2] = CreateEvent(NULL, FALSE, TRUE, NULL);
 
 	WSADATA wsa;
 	if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
@@ -263,7 +299,7 @@ int main(int argc, char *argv[])
 
 	while (1) {
 		// accept()
-		if (player_Count <= MAX_PLAYER) {
+		if (player_Count < MAX_PLAYER - 1) {
 			addrlen = sizeof(clientaddr);
 			client_sock = accept(listen_sock, (SOCKADDR *)&clientaddr, &addrlen);
 			if (client_sock == INVALID_SOCKET) {
@@ -279,13 +315,15 @@ int main(int argc, char *argv[])
 				(LPVOID)client_sock, 0, NULL);
 			if (hThread == NULL) { closesocket(client_sock); }
 			else { CloseHandle(hThread); }
-			SetThreadPriority(hThread, THREAD_PRIORITY_TIME_CRITICAL);
+			//SetThreadPriority(hThread, THREAD_PRIORITY_TIME_CRITICAL);
 		}
 	}
 	DeleteCriticalSection(&cs);
 	// closesocket()
 	for (int i = 0; i < 3; ++i)
-		CloseHandle(hEvent[i]);
+		CloseHandle(hRecvEvent[i]);
+	for (int i = 0; i < 3; ++i)
+		CloseHandle(hSendEvent[i]);
 	closesocket(listen_sock);
 
 	// 윈속 종료

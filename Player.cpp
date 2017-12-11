@@ -9,6 +9,10 @@ Player::Player(float pX, float pY, float pHP) {
 	move_State[0] = 0;	move_State[1] = 0;
 	shoot_State = NO_SHOOT;
 	shoot_CollTime = 0.3f;
+	coll_Box[LEFT] = pX - PLAYER_SIZE;
+	coll_Box[RIGHT] = pX + PLAYER_SIZE;
+	coll_Box[BOTTOM] = pY - PLAYER_SIZE;
+	coll_Box[TOP] = pY + PLAYER_SIZE;
 }
 
 bool Player::shoot() {
@@ -39,6 +43,17 @@ void Player::update(int frame_time) {
 		v_PPMS /= 1.414;
 	real_X = move(PLAYER_SIZE, real_X, move_State[0] * v_PPMS, 2000.0f - PLAYER_SIZE);
 	real_Y = move(PLAYER_SIZE, real_Y, move_State[1] * v_PPMS, 2000.0f - PLAYER_SIZE);
+	coll_Box[LEFT] = real_X - PLAYER_SIZE;
+	coll_Box[RIGHT] = real_X + PLAYER_SIZE;
+	coll_Box[BOTTOM] = real_Y - PLAYER_SIZE;
+	coll_Box[TOP] = real_Y + PLAYER_SIZE;
+}
+
+bool Player::collBullet(float damage) {
+	hp -= damage;
+	if (hp <= 0)
+		return true;
+	return false;
 }
 
 void Player::changeShootState(int state) {
