@@ -57,6 +57,13 @@ bool Player::collBullet(float damage) {
 	return false;
 }
 
+void Player::collItem(float hp)
+{
+	this->hp += hp;
+	if (this->hp > PLAYER_HP)
+		this->hp = PLAYER_HP;
+}
+
 void Player::changeShootState(int state) {
 	shoot_State = state;
 }

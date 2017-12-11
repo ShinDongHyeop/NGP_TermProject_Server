@@ -28,6 +28,7 @@ public:
 	void changeLookXY(float lookX, float lookY);
 	void update(int frame_time);
 	bool collBullet(float damage);
+	void collItem(float hp);
 	void respawn(float pX, float pY, float pHP);
 	void dying() { death++; }
 	void killing() { kill++; }

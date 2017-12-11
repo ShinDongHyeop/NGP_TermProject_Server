@@ -12,6 +12,10 @@ struct BulletBuf {
 	float real_X, real_Y;
 };
 
+struct ItemBuf {
+	float real_X, real_Y;
+};
+
 struct ClientBuf {
 	int move_State[2];
 	int shoot_State;
