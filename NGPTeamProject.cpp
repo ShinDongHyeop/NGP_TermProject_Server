@@ -76,7 +76,7 @@ ItemBuf itemsBuf[MAX_ITEM];
 ClientBuf clientBuf[MAX_PLAYER];
 SOCKET client_Socks[MAX_PLAYER];
 clock_t current_time[MAX_PLAYER] = { clock(), clock(), clock() };
-clock_t itemCurrentTime;
+queue<clock_t> itemCurrentTime;
 float itemRespawnTime;
 
 bool readyCheck() {
@@ -116,6 +116,7 @@ void setBulletBuf() {
 		++i;
 	}
  }
+
 void setItemBuf() {
 	int i = 0;
 	for (auto b : items) {
@@ -148,7 +149,7 @@ void changePlayerData(int code, int frame_time) {
 
 void initItem()
 {
-	srand(time(NULL));
+	srand((unsigned)time(NULL));
 	for (int i = 0; i < MAX_ITEM; ++i) {
 		float random_X = (float)rand() / RAND_MAX * 2000.0f;
 		float random_Y = (float)rand() / RAND_MAX * 2000.0f;
@@ -158,17 +159,17 @@ void initItem()
 
 void createItem()
 {
-	srand(time(NULL));
-
+	srand((unsigned)time(NULL));
+	
 	if (items.size() < MAX_ITEM) {
-		itemRespawnTime = clock() - itemCurrentTime;
+		itemRespawnTime = clock() - itemCurrentTime.front();
 		itemRespawnTime = itemRespawnTime / CLOCKS_PER_SEC;
 		cout << itemRespawnTime << " " << items.size() << endl;
-		if (itemRespawnTime > 9.0) {
+		if (itemRespawnTime > 9.0 && items.size() < MAX_ITEM) {
 			float random_X = (float)rand() / RAND_MAX * 2000.0f;
 			float random_Y = (float)rand() / RAND_MAX * 2000.0f;
 			items.push_back(new Item(random_X, random_Y));
-			itemCurrentTime = 0;
+			itemCurrentTime.pop();
 		}
 	}
 }
@@ -187,8 +188,7 @@ void collisionObjects(int code) {
 
 	for (auto d : items) {
 		if (collision(d, players[code])) {
-			if (itemCurrentTime == 0.0)
-				itemCurrentTime = clock();
+			itemCurrentTime.push(clock());
 			items.remove(d);
 			players[code]->collItem(30.0f);
 		}
@@ -196,12 +196,18 @@ void collisionObjects(int code) {
 }
 
 void respawnPlayer(int code) {
-	srand(time(NULL));
+	srand((unsigned)time(NULL));
 	float random_X = (float)rand() / RAND_MAX * 2000.0f;
 	float random_Y = (float)rand() / RAND_MAX * 2000.0f;
 	players[code]->respawn(random_X, random_Y, PLAYER_HP);
 }
 
+bool gameEnd(int code)
+{
+	if (players[code]->getKill() >= 2)
+		return true;
+	return false;
+}
 DWORD WINAPI myGameThread(LPVOID arg) {
 	SOCKET client_sock = (SOCKET)arg;
 	client_Socks[player_Count] = (SOCKET)arg;
@@ -267,7 +273,7 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 			if (retval != WAIT_OBJECT_0) break;
 
 			ResetEvent(clientEvent[(playerCode + 1) % 3]);
-			frame_time= clock() - current_time[playerCode];
+			frame_time = clock() - current_time[playerCode];
 			
 			current_time[playerCode] += frame_time;
 			retval = recv(client_sock, (char*)&player_State[playerCode], sizeof(int), 0);
@@ -307,6 +313,7 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 				setPlayerBuf();
 				setBulletBuf();
 				setItemBuf();
+				createItem();
 				retval = send(client_sock, (char*)&playersBuf, PB_SIZE, 0);
 				if (retval == SOCKET_ERROR) {
 					err_display("send()");
@@ -334,11 +341,14 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 					err_display("send()");
 					break;
 				}
+				if (gameEnd(playerCode)) 
+					game_State = END;
 				break;
 			case DIE:
 				setPlayerBuf();
 				setBulletBuf();
 				setItemBuf();
+				createItem();
 				retval = send(client_sock, (char*)&playersBuf, PB_SIZE, 0);
 				if (retval == SOCKET_ERROR) {
 					err_display("send()");
@@ -366,6 +376,8 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 					err_display("send()");
 					break;
 				}
+				if (gameEnd(playerCode))
+					game_State = END;
 				break;
 			case RESPAWN:
 				retval = send(client_sock, (char*)&frame_time, sizeof(int), 0);
@@ -385,6 +397,7 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 				setPlayerBuf();
 				setBulletBuf();
 				setItemBuf();
+				createItem();
 				retval = send(client_sock, (char*)&playersBuf, PB_SIZE, 0);
 				if (retval == SOCKET_ERROR) {
 					err_display("send()");
@@ -412,9 +425,12 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 					err_display("send()");
 					break;
 				}
+				if (gameEnd(playerCode))
+					game_State = END;
 				break;
 			}
 			retval = send(client_sock, (char*)&player_State[playerCode], sizeof(int), 0);
+			retval = send(client_sock, (char*)&game_State, sizeof(int), 0);
 			if (retval == SOCKET_ERROR) {
 				err_display("send()");
 				break;
@@ -422,6 +438,7 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 			SetEvent(clientEvent[playerCode]);
 			break;
 		case END:
+			retval = send(client_sock, (char*)&playersBuf, PB_SIZE, 0);
 			break;
 		}
 	}

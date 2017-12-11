@@ -15,7 +15,8 @@
 #define BULLET_SPEED	100.0f
 #define BULLET_SIZE		3.0f
 
-#define MAX_ITEM		50
+#define MAX_ITEM		5
+#define ITEM_SIZE		10
 #define RECOVERY		30.0f
 
 #define KPH_TO_MPS		(1000.0f / 3600.0f)
