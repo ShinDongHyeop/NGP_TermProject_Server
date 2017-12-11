@@ -95,6 +95,8 @@ void setPlayerBuf() {
 		playersBuf[i].look_Y = players[i]->getLookY();
 		playersBuf[i].hp = players[i]->getHP();
 		playersBuf[i].state = player_State[i];
+		playersBuf[i].kill = players[i]->getKill();
+		playersBuf[i].death = players[i]->getDeath();
 	}
 }
 
@@ -132,8 +134,11 @@ void collisionObjects(int code) {
 	for (auto d : bullets) {
 		if (collision(d, players[code]) && (code != d->getOwner())) {
 			bullets.remove(d);
-			if (players[code]->collBullet(10.0f))
+			if (players[code]->collBullet(10.0f)) {
 				player_State[code] = DIE;
+				players[code]->dying();
+				players[d->getOwner()]->killing();
+			}
 		}
 	}
 }

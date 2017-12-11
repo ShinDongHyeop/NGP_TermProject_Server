@@ -8,6 +8,7 @@ class Player {
 	int shoot_State;
 	float shoot_CollTime;
 	float coll_Box[4];
+	int kill, death;
 public:
 	Player(float pX, float pY, float pHP);
 
@@ -18,7 +19,8 @@ public:
 	float getHP() { return hp; }
 	float* getCollBox() { return coll_Box; }
 	float move(float min, float x, float v, float max);
-
+	int getKill() { return kill; }
+	int getDeath() { return death; }
 	bool shoot();
 
 	void changeMove(int* moveState);
@@ -27,4 +29,6 @@ public:
 	void update(int frame_time);
 	bool collBullet(float damage);
 	void respawn(float pX, float pY, float pHP);
+	void dying() { death++; }
+	void killing() { kill++; }
 };

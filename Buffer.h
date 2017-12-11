@@ -5,6 +5,7 @@ struct PlayerBuf {
 	float look_X, look_Y;
 	float hp;
 	int state;
+	int kill, death;
 };
 
 struct BulletBuf {
