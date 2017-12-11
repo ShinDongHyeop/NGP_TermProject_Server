@@ -132,7 +132,8 @@ void collisionObjects(int code) {
 	for (auto d : bullets) {
 		if (collision(d, players[code]) && (code != d->getOwner())) {
 			bullets.remove(d);
-			players[code]->collBullet(10.0f);
+			if (players[code]->collBullet(10.0f))
+				player_State[code] = DIE;
 		}
 	}
 }
@@ -144,6 +145,7 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 	int addrlen = sizeof(clientaddr);
 	getpeername(client_sock, (SOCKADDR *)&clientaddr, &addrlen);
 	int frame_time;
+	float start_time;
 	int retval;
 	int playerCode = player_Count;
 	int bullet_count;
@@ -184,6 +186,7 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 					err_display("send()");
 					break;
 				}
+				current_time[playerCode] = clock();
 			}
 			else {
 				retval = send(client_sock, (char*)&player_State[playerCode], sizeof(int), 0);
@@ -199,55 +202,73 @@ DWORD WINAPI myGameThread(LPVOID arg) {
 			EnterCriticalSection(&cs);
 			ResetEvent(clientEvent[(playerCode + 1) % 3]);
 			frame_time= clock() - current_time[playerCode];
+			
 			current_time[playerCode] += frame_time;
 			//printf("player %d frame : %d", playerCode, 1000 / frame_time);
-			retval = recvn(client_sock, (char*)&clientBuf[playerCode], sizeof(ClientBuf), 0);
+			retval = recv(client_sock, (char*)&player_State[playerCode], sizeof(int), 0);
 			if (retval == SOCKET_ERROR) {
 				err_display("recv()");
 				break;
 			}
-		/*	retval = WaitForMultipleObjects(3, hSendEvent, TRUE, INFINITE);
-			if (retval == WAIT_FAILED) break;*/
+			switch (player_State[playerCode])
+			{
+			case START:
+				retval = send(client_sock, (char*)&frame_time, sizeof(int), 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
+				}
+				retval = recv(client_sock, (char*)&start_time, sizeof(float), 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("recv()");
+					break;
+				}
+				if (start_time <= 0.0f)
+					player_State[playerCode] = PLAY;
+				break;
+			case PLAY:
+				retval = recvn(client_sock, (char*)&clientBuf[playerCode], sizeof(ClientBuf), 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("recv()");
+					break;
+				}
 
-			changePlayerData(playerCode, frame_time);
+				changePlayerData(playerCode, frame_time);
 
-			collisionObjects(playerCode);
+				collisionObjects(playerCode);
 
-			setPlayerBuf();
-			setBulletBuf();
+				setPlayerBuf();
+				setBulletBuf();
 
-			/*EnterCriticalSection(&cs);
-			SetEvent(hRecvEvent[0]);
-			SetEvent(hRecvEvent[1]);
-			SetEvent(hRecvEvent[2]);
-			LeaveCriticalSection(&cs);*/
-
-			/*retval = WaitForMultipleObjects(3, hRecvEvent, TRUE, INFINITE);
-			if (retval == WAIT_FAILED) break;
-*/
-			retval = send(client_sock, (char*)&playersBuf, PB_SIZE, 0);
-			if (retval == SOCKET_ERROR) {
-				err_display("send()");
+				retval = send(client_sock, (char*)&playersBuf, PB_SIZE, 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
+				}
+				bullet_count = bullets.size();
+				retval = send(client_sock, (char*)&bullet_count, sizeof(int), 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
+				}
+				retval = send(client_sock, (char*)&bulletsBuf, sizeof(BulletBuf)*bullet_count, 0);
+				if (retval == SOCKET_ERROR) {
+					err_display("send()");
+					break;
+				}
+				break;
+			case DIE:
+				break;
+			case RESPAWN:
 				break;
 			}
-			bullet_count = bullets.size();
-			retval = send(client_sock, (char*)&bullet_count, sizeof(int), 0);
-			if (retval == SOCKET_ERROR) {
-				err_display("send()");
-				break;
-			}
-			retval = send(client_sock, (char*)&bulletsBuf, sizeof(BulletBuf)*bullet_count, 0);
+			retval = send(client_sock, (char*)&player_State[playerCode], sizeof(int), 0);
 			if (retval == SOCKET_ERROR) {
 				err_display("send()");
 				break;
 			}
 			SetEvent(clientEvent[playerCode]);
 			LeaveCriticalSection(&cs);
-			/*EnterCriticalSection(&cs);
-			SetEvent(hSendEvent[0]);
-			SetEvent(hSendEvent[1]);
-			SetEvent(hSendEvent[2]);
-			LeaveCriticalSection(&cs);*/
 			break;
 		case END:
 			break;
@@ -262,13 +283,6 @@ int main(int argc, char *argv[])
 {
 	int retval;
 	InitializeCriticalSection(&cs);
-	// 윈속 초기화
-	/*hRecvEvent[0] = CreateEvent(NULL, FALSE, FALSE, NULL);
-	hRecvEvent[1] = CreateEvent(NULL, FALSE, FALSE, NULL);
-	hRecvEvent[2] = CreateEvent(NULL, FALSE, FALSE, NULL);
-	hSendEvent[0] = CreateEvent(NULL, FALSE, TRUE, NULL);
-	hSendEvent[1] = CreateEvent(NULL, FALSE, TRUE, NULL);
-	hSendEvent[2] = CreateEvent(NULL, FALSE, TRUE, NULL);*/
 	clientEvent[0] = CreateEvent(NULL, TRUE, FALSE, NULL);
 	clientEvent[1] = CreateEvent(NULL, TRUE, TRUE, NULL);
 	clientEvent[2] = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -319,15 +333,9 @@ int main(int argc, char *argv[])
 				(LPVOID)client_sock, 0, NULL);
 			if (hThread == NULL) { closesocket(client_sock); }
 			else { CloseHandle(hThread); }
-			//SetThreadPriority(hThread, THREAD_PRIORITY_TIME_CRITICAL);
 		}
 	}
 	DeleteCriticalSection(&cs);
-	// closesocket()
-	/*for (int i = 0; i < 3; ++i)
-		CloseHandle(hRecvEvent[i]);
-	for (int i = 0; i < 3; ++i)
-		CloseHandle(hSendEvent[i]);*/
 	for (int i = 0; i < 3; ++i)
 		CloseHandle(clientEvent[i]);
 	closesocket(listen_sock);
