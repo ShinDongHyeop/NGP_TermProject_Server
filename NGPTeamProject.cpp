@@ -187,7 +187,8 @@ void collisionObjects(int code) {
 
 	for (auto d : items) {
 		if (collision(d, players[code])) {
-			itemCurrentTime = clock();
+			if (itemCurrentTime == 0.0)
+				itemCurrentTime = clock();
 			items.remove(d);
 			players[code]->collItem(30.0f);
 		}
