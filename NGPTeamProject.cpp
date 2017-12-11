@@ -156,6 +156,23 @@ void initItem()
 	}
 }
 
+void createItem()
+{
+	srand(time(NULL));
+
+	if (items.size() < MAX_ITEM) {
+		itemRespawnTime = clock() - itemCurrentTime;
+		itemRespawnTime = itemRespawnTime / CLOCKS_PER_SEC;
+		cout << itemRespawnTime << " " << items.size() << endl;
+		if (itemRespawnTime > 9.0) {
+			float random_X = (float)rand() / RAND_MAX * 2000.0f;
+			float random_Y = (float)rand() / RAND_MAX * 2000.0f;
+			items.push_back(new Item(random_X, random_Y));
+			itemCurrentTime = 0;
+		}
+	}
+}
+
 void collisionObjects(int code) {
 	for (auto d : bullets) {
 		if (collision(d, players[code]) && (code != d->getOwner())) {
@@ -170,6 +187,7 @@ void collisionObjects(int code) {
 
 	for (auto d : items) {
 		if (collision(d, players[code])) {
+			itemCurrentTime = clock();
 			items.remove(d);
 			players[code]->collItem(30.0f);
 		}
